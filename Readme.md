@@ -1,14 +1,21 @@
-# Analysis and figures for Popp, et al., Multiplex, Multimodal Mapping of Variant Effects in Secreted Proteins. BioRXiv 587474, 2024.
+# Multiplex, Multimodal Mapping of Variant Effects in Secreted Proteins
 
-Requirements:
-R 4.0.0 or greater
+This github repo contains all code required to recreate the analysis and figures from "Multiplex, multimodal mapping of variant effects in secreted proteins".
 
 ## Downloading and preparing the repository for analysis
 
 1. Clone or fork this GitHub repository
 
-2. Navigate to the downloaded folder. All input and output data should be present already. To run the script on your own, first, you need to run this shell script to unpack the input data.
+2. Navigate to the downloaded folder. All input data will be present, but has been compressed to accommodate github file size restrictions. To decompress and rebuild the input files, run the following script.
 
 `sh rebuild_input_files.sh`
 
-3. Open R/RStudio and open the MultiSTEP_analysis.Rmd file. Run the script inside to generate all figures and analyses. *NOTE* All generated figures and tables will overwrite what is already present in the output folder. 
+## Analysis and Figures
+
+Requirements:
+R 4.0.0 or greater
+PyMOL 2.5.2 or greater
+
+The MultiSTEP_analysis.Rmd file contains all the code required to recreate the analysis and generate the figures and tables from the paper. The code is written to check for any required R packages and install them if necessary.
+
+For figures involving protein structures, this script outputs .pml files. When the .pml files are opened in PyMOL, they will generate and save the publication figures.  
