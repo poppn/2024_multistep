@@ -211,7 +211,9 @@ heatmap_plot <- function(...) {
 read_clinvar_path <- function(path){
   
   ## read in tsv file
-  read_tsv(path, col_names = TRUE) %>%
+  read_tsv(path, col_names = TRUE,
+           col_select = c("Type", "Name", "#AlleleID", "ReviewStatus",
+                          "ClinicalSignificance", "GeneSymbol")) %>%
     ## create path name variable
     mutate(source_path = path) %>%
     ## convert path to year
@@ -525,6 +527,7 @@ overlap23 <- intersect(x = tile2, y = tile3)
 ## create easy reference variables for RefSeq/Ensembl/UniProt accessions for FIX
 refseq_cDNA <- "NM_000133.4"
 refseq_protein <- "NP_000124.1"
+refseq_gDNA <- "NC_000023.11"
 ensembl_transcript_id <- "ENST00000218099"
 ensembl_protein_id <- "ENSP00000218099"
 uniprot_id <- "P00740"
@@ -810,9 +813,6 @@ all_clinvar <- list.files(path = here("inputs", "ClinVar", "by_year"),
   ## then read each in using read_clinvar_path, which adds a path column
   ## that can be used to isolate the year
   map_df(~read_clinvar_path(here("inputs", "ClinVar", "by_year", .))) %>%
-  ## select only necessary columns to reduce memory requirements
-  select(Type, Name, `#AlleleID`, ReviewStatus, ClinicalSignificance,
-         GeneSymbol, year) %>%
   ## remove duplicates (hg37 and hg38)
   distinct() %>%
   ## keep only single variants
@@ -1566,124 +1566,244 @@ syn_threshold_wide <- syn_threshold %>%
 ```
 
 ```{r check variant correlation}
-# 
-# ERROR FIX ME
-# 
-# ## variant replication by tile
-# ## input:
-#     ## scored_variants dataframe
-# ## output:
-#     ## 1: wt_aa - WT amino acid, NA if WT
-#     ## 2: position - position of variant, 0 if WT
-#     ## 3: var_aa - variant amino acid, NA if WT
-#     ## 4: tile - library tile
-#     ## 5: antibody - abbreviated antibody name
-#     ## 6: exp_replicate.x - experimental replicate #1
-#     ## 7: score.x - min-max normalized score for variant in experimental replicate #1
-#     ## 8: exp_replicate.y - experimental replicate #2
-#     ## 9: score.y - min-max normalized score for variant in experimental replicate #2
-#     ## 10: antibody_nonnum - nonnumeric antibody catalog number
-#     ## 11: antibody_label - antibody label for plots
-#     ## 12: antibody_label2 - two-line version of antibody_label for smaller plots
-#     ## 13: label - title for each correlation plot
-#     ## 14: color_label - hex color for each correlation plot, based on library tile
-# variant_correlation <- scored_variants %>%
-#   ## adjust to long format
-#   pivot_wider(names# %>%
-#   ## remove WT and nonsense variants
-#   filter(position != 0) %>%
-#   ## remove nonmatching antibodies
-#   filter(antibody.x == antibody.y) %>%
-#   ## remove unneccessary columns
-#   select(-antibody.y, -matches("type")) %>%
-#   ## rename for ease
-#   rename(antibody = antibody.x) %>%
-#   ## filter only AB comparisons (discard BA)
-#   filter(exp_replicate.x < exp_replicate.y) %>%
-#   ## remove any variants that are missing from all experiments (or cor fails)
-#   filter(if_any(contains("score"), complete.cases)) %>%
-#   ## join with antibody label table for easier labels
-#   left_join(antibody_table, by = "antibody") %>%
-#   ## create easy labels
-#   mutate(tile = gsub("tile", "tile ", tile),
-#          label = paste0(antibody_label2, "\n", tile, ": rep ", exp_replicate.x,
-#                         " vs. rep ", exp_replicate.y),
-#          color_label = case_when(antibody == "001" ~ "#00496F",
-#                                  antibody == "3570" ~ "#0F85A0",
-#                                  antibody == "124" ~ "#ED8B00",
-#                                  antibody == "102" ~ "#DD4124",
-#                                  antibody == "strep" ~ "#EDD746"))
-# 
-# ###############################################################################
-# 
-# ## calculate number of scored variants for each antibody
-# ## input:
-#     ## variant_correlation dataframe
-# ## output:
-#     ## 1: antibody - abbreviated antibody name
-#     ## 2: label - descriptor of each comparison 
-#     ## 3: n - number of unique variants scored between tile replicates
-# tile_variants <- variant_correlation %>%
-#   group_by(antibody, label) %>%
-#   count()
-# 
-# ###############################################################################
-# 
-# ## get average correlation across all antibodies and replicates
-# average_correlation_replicates <- variant_correlation %>%
-#   ## calculate correlation for each antibody-replicate pair
-#   group_by(label) %>%
-#   summarise(correlation = cor(score.x, score.y, use = "pairwise.complete.obs")) %>%
-#   ungroup() %>%
-#   ## calculate and extract average correlation
-#   summarise(mean_correlation = mean(correlation)) %>%
-#   pull() %>%
-#   ## round to two digits
-#   round(digits = 2)
-# 
-# ###############################################################################
-# 
-# ## Fig. S2 - Across replicate variant correlation plots
-# experimental_replicate_correlations <- variant_correlation %>%
-#   ## arrange in order of antibody and tile
-#   arrange(antibody, tile, exp_replicate.x) %>%
-#   ## nest by labeling variable
-#   group_by(label) %>% 
-#   nest() %>%
-#   ## create plots with map2 function
-#   mutate(plot = map2(data, label, ~ggplot(data = .x,
-#                                           aes(x = score.x,
-#                                               y = score.y)) +
-#                        ## add points, colored by label
-#                        geom_point(color = .$color_label,
-#                                   size = 1, alpha = 0.2) +
-#                        ## add correlation statistic
-#                        stat_cor(aes(label = paste(after_stat(r.label))),
-#                                 label.y = 1.9, label.x = -0.4, hjust = 0, size = 6 / .pt) +
-#                        ## add perfect correlation line
-#                        geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
-#                        ## adjust x and y axes
-#                        scale_x_continuous(expand = c(0, 0),
-#                                           limits = c(-0.55, 2.05),
-#                                           breaks = seq(-0.5, 2, by = 0.5),
-#                                           labels = function(x) as.character(x)) +
-#                        scale_y_continuous(expand = c(0, 0),
-#                                           limits = c(-0.55, 2.05),
-#                                           breaks = seq(-0.5, 2, by = 0.5),
-#                                           labels = function(x) as.character(x)) +
-#                        ## add titles
-#                        labs(x = paste("Score in replicate", .$exp_replicate.x),
-#                             y = paste("Score in replicate", .$exp_replicate.y),
-#                             title = label))) %>%
-#   ## extract only plots into list
-#   pull(plot) %>%
-#   ## arrange list of plots
-#   wrap_plots()
-# 
-# ## save Fig. S2
-# ggsave(here("outputs", "supp_fig_panels", "S2_replicate_correlations.pdf"),
-#        plot = experimental_replicate_correlations, device = cairo_pdf,
-#        height = 150, width = 180, units = "mm")
+
+## variant replication by tile
+## input:
+    ## scored_variants dataframe
+## output:
+    ## 1: wt_aa - WT amino acid, NA if WT
+    ## 2: position - position of variant, 0 if WT
+    ## 3: var_aa - variant amino acid, NA if WT
+    ## 4: tile - library tile
+    ## 5: antibody - abbreviated antibody name
+    ## 6: exp_replicate.x - experimental replicate #1
+    ## 7: score.x - min-max normalized score for variant in experimental replicate #1
+    ## 8: exp_replicate.y - experimental replicate #2
+    ## 9: score.y - min-max normalized score for variant in experimental replicate #2
+    ## 10: antibody_nonnum - nonnumeric antibody catalog number
+    ## 11: antibody_label - antibody label for plots
+    ## 12: antibody_label2 - two-line version of antibody_label for smaller plots
+    ## 13: label - title for each correlation plot
+    ## 14: color_label - hex color for each correlation plot, based on library tile
+variant_correlation <- scored_variants %>%
+  ## join with same table to get comparisons
+  full_join(scored_variants, by = c("wt_aa", "position", "var_aa", 
+                                    "antibody", "tile", "type"),
+            multiple = "all", relationship = "many-to-many")%>%
+  ## join with antibody table for easier labeling
+  left_join(antibody_table, by = "antibody") %>%
+  ## keep only useful columns
+  select(wt_aa, position, var_aa, tile, exp_replicate.x, exp_replicate.y, score.x,
+         score.y, antibody, antibody_label2) %>%
+  ## remove nonsense and WT
+  filter(var_aa != "X",
+         position != 0) %>%
+  ## filter only AB comparisons (discard BA)
+  filter(exp_replicate.x < exp_replicate.y) %>%
+  ## remove any variants that are missing from all experiments (or cor fails)
+  filter(if_all(contains("score"), ~ !is.na(.))) %>%
+  ## create easy labels
+  mutate(tile = gsub("tile", "tile ", tile),
+         label = paste0(antibody_label2, "\n", tile, ": rep ", exp_replicate.x,
+                        " vs. rep ", exp_replicate.y),
+         color_label = case_when(antibody == "001" ~ "#00496F",
+                                 antibody == "3570" ~ "#0F85A0",
+                                 antibody == "124" ~ "#ED8B00",
+                                 antibody == "102" ~ "#DD4124",
+                                 antibody == "strep" ~ "#EDD746"))
+
+###############################################################################
+
+## calculate number of scored variants for each antibody
+## input:
+    ## variant_correlation dataframe
+## output:
+    ## 1: antibody - abbreviated antibody name
+    ## 2: label - descriptor of each comparison
+    ## 3: n - number of unique variants scored between tile replicates
+tile_variants <- variant_correlation %>%
+  group_by(antibody_label2, label) %>%
+  count()
+
+###############################################################################
+
+## get average correlation across all antibodies and replicates
+average_correlation_replicates <- variant_correlation %>%
+  ## calculate correlation for each antibody-replicate pair
+  group_by(label) %>%
+  summarise(correlation = cor(score.x, score.y, use = "pairwise.complete.obs")) %>%
+  ungroup() %>%
+  ## calculate and extract average correlation
+  summarise(mean_correlation = mean(correlation)) %>%
+  pull() %>%
+  ## round to two digits
+  round(digits = 2)
+
+###############################################################################
+
+## Fig. S2 - Across replicate variant correlation plots
+experimental_replicate_correlations <- variant_correlation %>%
+  ## arrange in order of antibody and tile
+  arrange(antibody, tile, exp_replicate.x) %>%
+  ## nest by labeling variable
+  group_by(label) %>%
+  nest() %>%
+  ## create plots with map2 function
+  mutate(plot = map2(data, label, ~ggplot(data = .x,
+                                          aes(x = score.x,
+                                              y = score.y)) +
+                       ## add points, colored by label
+                       geom_point(color = .$color_label,
+                                  size = 1, alpha = 0.2) +
+                       ## add correlation statistic
+                       stat_cor(aes(label = paste(after_stat(r.label))),
+                                label.y = 1.9, label.x = -0.4, hjust = 0, size = 6 / .pt) +
+                       ## add perfect correlation line
+                       geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
+                       ## adjust x and y axes
+                       scale_x_continuous(expand = c(0, 0),
+                                          limits = c(-0.55, 2.05),
+                                          breaks = seq(-0.5, 2, by = 0.5),
+                                          labels = function(x) as.character(x)) +
+                       scale_y_continuous(expand = c(0, 0),
+                                          limits = c(-0.55, 2.05),
+                                          breaks = seq(-0.5, 2, by = 0.5),
+                                          labels = function(x) as.character(x)) +
+                       ## add titles
+                       labs(x = paste("Score in replicate", .$exp_replicate.x),
+                            y = paste("Score in replicate", .$exp_replicate.y),
+                            title = label))) %>%
+  ## extract only plots into list
+  pull(plot) %>%
+  ## arrange list of plots
+  wrap_plots()
+
+## save Fig. S2
+ggsave(here("outputs", "supp_fig_panels", "S2_replicate_correlations.pdf"),
+       plot = experimental_replicate_correlations, device = cairo_pdf,
+       height = 150, width = 180, units = "mm")
+
+```
+
+```{r tile correlations}
+
+## calculate variant correlation across tiles
+## input:
+    ## scored_variants_sublibrary_average dataframe
+## output:
+    ## 1: wt_aa - WT amino acid, NA if WT
+    ## 2: position - position of variant, 0 if WT
+    ## 3: var_aa - variant amino acid, NA if WT
+    ## 4: antibody - antibody catalog number shorthand
+    ## 5: antibody_label2 - two-line version of antibody_label for smaller plots
+    ## 6: tileA - min-max normalized score for variant in tile A
+    ## 7: tileA_label - tile A identifier
+    ## 8: tileB - min-max normalized score for variant in tile B 
+    ## 9: tileB_label - tile B identifier
+    ## 10: comparison - title for each correlation plot
+    ## 11: color_label - hex color for each correlation plot, based on library tile
+tile_correlations <- scored_variants_sublibrary_average %>%
+  ## join with antibody table for easier labeling
+  left_join(antibody_table, by = "antibody") %>%
+  ## remove nonsense and WT
+  filter(var_aa != "X",
+         position != 0) %>%
+  ## keep only useful columns
+  select(wt_aa, position, var_aa, tile, antibody, average_sublibrary_score,
+         antibody_label2) %>%
+  ## convert tiles to columns and fill in values
+  pivot_wider(names_from = tile,
+              values_from = average_sublibrary_score) %>%
+  ## remove any variants that are missing from all experiments (or cor fails)
+  filter(if_any(contains("tile"), complete.cases)) %>%
+  ## combine, create comparison title for faceting, add colors
+  mutate(tileA = tile2,
+         tileA_label = "tile 2",
+         tileB = case_when(is.na(tile1) == TRUE ~ tile3,
+                           is.na(tile3) == TRUE ~ tile1),
+         tileB_label = case_when(is.na(tile1) == TRUE ~ "tile 1",
+                                 is.na(tile3) == TRUE ~ "tile 3"),
+         comparison = case_when(is.na(tile1) == TRUE ~ "tile 1 vs. tile 2",
+                                is.na(tile3) == TRUE ~ "tile 2 vs. tile 3"),
+         comparison = paste0(antibody_label2, ":\n", comparison),
+         color_label = case_when(antibody == "001" ~ "#00496F",
+                                 antibody == "3570" ~ "#0F85A0",
+                                 antibody == "124" ~ "#ED8B00",
+                                 antibody == "102" ~ "#DD4124",
+                                 antibody == "strep" ~ "#EDD746")) %>%
+  ## remove unnecessary columns
+  select(-tile1, -tile2, -tile3)
+
+###############################################################################
+
+## calculate number of shared variants for each antibody
+## input:
+    ## tile_correlations dataframe
+## output:
+    ## 1: antibody - abbreviated antibody name
+    ## 2: comparison - descriptor of each comparison 
+    ## 3: n - number of unique variants scored between tiles
+tile_shared_variants <- tile_correlations %>%
+  group_by(antibody, comparison) %>%
+  count()
+
+###############################################################################
+
+## get average correlation across all antibodies
+average_correlation_tiles <- tile_correlations %>%
+  ## calculate correlation for each antibody-replicate pair
+  group_by(comparison) %>%
+  summarise(correlation = cor(tileA, tileB, use = "pairwise.complete.obs")) %>%
+  ungroup() %>%
+  ## calculate average correlation
+  summarise(mean_correlation = mean(correlation)) %>%
+  pull() %>%
+  ## round to two digits
+  round(digits = 2)
+
+###############################################################################
+
+## Fig. S3 - Correlation of shared variants across tiles
+shared_tile_correlations <- tile_correlations %>%
+  ## arrange in order of antibody and tile
+  arrange(antibody, tileB_label) %>%
+  ## nest by labeling variable
+  group_by(comparison) %>% 
+  nest() %>%
+  ## create plots with map2 function
+  mutate(plot = map2(data, comparison, ~ggplot(data = .x,
+                                               aes(x = tileA,
+                                                   y = tileB)) +
+                       ## add points, colored by label
+                       geom_point(color = .$color_label,
+                                  size = 1, alpha = 0.2) +
+                       ## add correlation statistic
+                       stat_cor(aes(label = paste(after_stat(r.label))),
+                                label.y = 1.3, label.x = -0.15, hjust = 0, size = 6 / .pt) +
+                       ## add perfect correlation line
+                       geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
+                       ## adjust x and y axes
+                       scale_x_continuous(expand = c(0, 0),
+                                          limits = c(-0.25, 1.45),
+                                          breaks = seq(-0.2, 1.4, by = 0.4),
+                                          labels = function(x) as.character(x)) +
+                       scale_y_continuous(expand = c(0, 0),
+                                          limits = c(-0.25, 1.45),
+                                          breaks = seq(-0.2, 1.4, by = 0.4),
+                                          labels = function(x) as.character(x)) +
+                       ## add titles
+                       labs(x = paste("Score in", .$tileA_label),
+                            y = paste("Score in", .$tileB_label),
+                            title = comparison))) %>%
+  ## extract only plots into list
+  pull(plot) %>%
+  ## arrange list of plots
+  wrap_plots(ncol = 5, byrow = FALSE)
+
+## save Fig. S3
+ggsave(here("outputs", "supp_fig_panels", "S3_tile_correlations.pdf"),
+       plot = shared_tile_correlations, device = cairo_pdf,
+       height = 72, width = 180, units = "mm")
 
 ```
 
@@ -3635,9 +3755,9 @@ ggsave(here("outputs", "main_fig_panels", "4f_carboxy_sens_positions.pdf"),
 
 ```{r variant mechanism effects}
 
-variant_classification <- scored_variants_final %>%
+variant_classification <- scored_variants_average %>%
   ## keep only missense
-  filter(wt_aa != var_aa & var_aa != "X") %>%
+  #filter(wt_aa != var_aa & var_aa != "X") %>%
   ## keep only useful columns
   select(variant, position, antibody, average_score) %>% 
   ## make wide
@@ -3743,19 +3863,23 @@ variant_classification <- scored_variants_final %>%
       ab124 >= syn_threshold_wide %>% pull(lower_124) 
     ~ "carboxylation-deficient"))
 
-## count all variants' classifications
+## count all missense variant classifications
 variant_class_count_all <- variant_classification %>%
+  ## keep only missense
+  filter(str_sub(variant, 1, 1) != str_sub(variant, -1, -1),
+         str_sub(variant, -1, -1) != "X") %>%
   tabyl(outcome) %>%
   adorn_pct_formatting(digits = 1) %>%
   adorn_totals("row") 
 
 carboxy_count <- variant_classification %>%
-  filter(position %in% seq(29, 92, by = 1)) %>%
+  filter(str_sub(variant, 1, 1) != str_sub(variant, -1, -1),
+         str_sub(variant, -1, -1) != "X",
+         position %in% seq(29, 92, by = 1)) %>%
   tabyl(outcome) %>% 
   adorn_pct_formatting(digits = 1) %>%
   adorn_totals("row")
   
-
 ```
 
 ```{r pymol carboxylation Gla domain}
@@ -4209,7 +4333,9 @@ eahad_severity <- eahad_cleaned %>%
   add_count() %>%
   ungroup() %>%
   ## Remove variants with multiple associated disease severities 
-  filter(n == 1) %>%
+  filter(n == 1) 
+
+eahad_severity_scores <- eahad_severity %>%
   ## join with MultiSTEP scores
   inner_join(scored_variants_average, by = "variant") %>%
   ## remove variants with no score
@@ -4223,7 +4349,7 @@ eahad_severity <- eahad_cleaned %>%
 ```{r severity vs secretion vs antigen}
 
 ## Fig. 5b - severity vs. secretion
-severity_plot <- eahad_severity %>%
+severity_plot <- eahad_severity_scores %>%
   ## light chain antibody
   filter(antibody == "124") %>%
   ## plot
@@ -4251,7 +4377,7 @@ ggsave(here("outputs", "main_fig_panels", "5b_severity_vs_secretion.pdf"),
        height = 40, width = 50, units = "mm")
 
 ## calculate fraction of severe disease with secretion score < 0.2
-sev_table_by_score <- eahad_severity %>% 
+sev_table_by_score <- eahad_severity_scores %>% 
   ## keep only light chain secretion score
   filter(antibody == "124") %>%
   ## add label for < 0.05 score
@@ -4269,7 +4395,7 @@ sev_table_by_score <- eahad_severity %>%
 ## Fig. 5c - severity vs. antigen
 severity_antigen <- eahad_antigen %>%
   ## join with eahad_severity
-  inner_join(eahad_severity, by = "variant") %>%
+  inner_join(eahad_severity_scores, by = "variant") %>%
   ## keep only one example
   filter(antibody == "124") %>%
   ## plot
@@ -4583,6 +4709,61 @@ prediction_table_missense <- new_predictions_missense %>%
   tabyl(label) %>%
   adorn_pct_formatting(digits = 2) %>%
   adorn_totals("row")
+
+```
+
+```{r build genomic coordinate table}
+
+###############################################################################
+
+## read in table with genomic coordinates of every variant
+## generated by M.Tejura
+genomic_coord_table <- read_csv(here("inputs", "coordinates",
+                                     "f9_condensed_hg38_gcoords.csv"),
+                                na = c("NA", "", "nan")) %>%
+  ## keep only useful columns
+  select(-contains("antibody"), -contains("model"), -contains("transcript")) %>%
+  ## split strings into list, make long form
+  separate_longer_delim(c(-Variant, -hgvs_p), delim = ";") %>%
+  ## substitute values
+  mutate(nt_change = gsub("c.*[0-9]", "", hgvs_c),
+         hgvs_g = case_when(nchar(ref_allele) == 1 ~
+                              str_c(refseq_gDNA, ":g.", hg38_start, nt_change),
+                            nchar(ref_allele) > 1 ~
+                              str_c(refseq_gDNA, ":g.", hg38_start, "_", hg38_end,
+                                     nt_change)),
+         hgvs_c = str_c(refseq_cDNA, ":", hgvs_c),
+         hgvs_p = str_c(refseq_protein, ":", hgvs_p)) %>%
+  select(-nt_change)
+
+## create table with all classifications and data from EAHAD
+variant_classification_all <- variant_model_results %>%
+  ## join with variant_classification table
+  full_join(variant_classification %>%
+              select(variant, outcome), by = c("Variant" = "variant")) %>%
+  ## join with EAHAD
+  full_join(eahad_severity %>%
+              select(-n), by = c("Variant" = "variant")) %>%
+  ## join with genomic coordinates
+  full_join(genomic_coord_table, by = "Variant") %>%
+  ## clean table
+  mutate(outcome = str_to_sentence(outcome),
+         outcome = gsub("Wt", "WT", outcome)) %>%
+  rename("funct_class_pred" = outcome,
+         "dis_severity" = Severity,
+         "f9_carb_score" = "Carboxylation-sensitive FIX Gla antibody score",
+         "gla_carb_score" = "Carboxylation-sensitive pan-Gla antibody score",
+         "hc_sec_score" = "Heavy chain antibody score",
+         "lc_sec_score" = "Light chain antibody score",
+         "strep_sec_score" = "Strep II tag antibody score",
+         "model_results" = "Model prediction",
+         "variant" = Variant) %>%
+  ## relocate
+  relocate(contains("hgvs"), .after = variant)
+
+## Save Table X - Genomic coordinates
+write_csv(variant_classification_all,
+          here("outputs", "tables","f9_coord_and_scores.csv"))
 
 ```
 
@@ -4970,127 +5151,5 @@ write_csv(PCR_correlation, here("outputs", "tables",
 mean_PCR_correlation <- PCR_correlation %>%
   summarise(mean_cor = mean(pear_cor)) %>%
   pull()
-
-```
-
-```{r tile correlations}
-
-## calculate variant correlation across tiles
-## input:
-    ## scored_variants_sublibrary_average dataframe
-## output:
-    ## 1: wt_aa - WT amino acid, NA if WT
-    ## 2: position - position of variant, 0 if WT
-    ## 3: var_aa - variant amino acid, NA if WT
-    ## 4: antibody - antibody catalog number shorthand
-    ## 5: antibody_label2 - two-line version of antibody_label for smaller plots
-    ## 6: tileA - min-max normalized score for variant in tile A
-    ## 7: tileA_label - tile A identifier
-    ## 8: tileB - min-max normalized score for variant in tile B 
-    ## 9: tileB_label - tile B identifier
-    ## 10: comparison - title for each correlation plot
-    ## 11: color_label - hex color for each correlation plot, based on library tile
-tile_correlations <- scored_variants_sublibrary_average %>%
-  ## join with antibody table for easier labeling
-  left_join(antibody_table, by = "antibody") %>%
-  ## remove nonsense and WT
-  filter(var_aa != "X",
-         position != 0) %>%
-  ## keep only useful columns
-  select(wt_aa, position, var_aa, tile, antibody, average_sublibrary_score,
-         antibody_label2) %>%
-  ## convert tiles to columns and fill in values
-  pivot_wider(names_from = tile,
-              values_from = average_sublibrary_score) %>%
-  ## remove any variants that are missing from all experiments (or cor fails)
-  filter(if_any(contains("tile"), complete.cases)) %>%
-  ## combine, create comparison title for faceting, add colors
-  mutate(tileA = tile2,
-         tileA_label = "tile 2",
-         tileB = case_when(is.na(tile1) == TRUE ~ tile3,
-                           is.na(tile3) == TRUE ~ tile1),
-         tileB_label = case_when(is.na(tile1) == TRUE ~ "tile 1",
-                                 is.na(tile3) == TRUE ~ "tile 3"),
-         comparison = case_when(is.na(tile1) == TRUE ~ "tile 1 vs. tile 2",
-                                is.na(tile3) == TRUE ~ "tile 2 vs. tile 3"),
-         comparison = paste0(antibody_label2, ":\n", comparison),
-         color_label = case_when(antibody == "001" ~ "#00496F",
-                                 antibody == "3570" ~ "#0F85A0",
-                                 antibody == "124" ~ "#ED8B00",
-                                 antibody == "102" ~ "#DD4124",
-                                 antibody == "strep" ~ "#EDD746")) %>%
-  ## remove unnecessary columns
-  select(-tile1, -tile2, -tile3)
-
-###############################################################################
-
-## calculate number of shared variants for each antibody
-## input:
-    ## tile_correlations dataframe
-## output:
-    ## 1: antibody - abbreviated antibody name
-    ## 2: comparison - descriptor of each comparison 
-    ## 3: n - number of unique variants scored between tiles
-tile_shared_variants <- tile_correlations %>%
-  group_by(antibody, comparison) %>%
-  count()
-
-###############################################################################
-
-## get average correlation across all antibodies
-average_correlation_tiles <- tile_correlations %>%
-  ## calculate correlation for each antibody-replicate pair
-  group_by(comparison) %>%
-  summarise(correlation = cor(tileA, tileB, use = "pairwise.complete.obs")) %>%
-  ungroup() %>%
-  ## calculate average correlation
-  summarise(mean_correlation = mean(correlation)) %>%
-  pull() %>%
-  ## round to two digits
-  round(digits = 2)
-
-###############################################################################
-
-## Fig. S3 - Correlation of shared variants across tiles
-shared_tile_correlations <- tile_correlations %>%
-  ## arrange in order of antibody and tile
-  arrange(antibody, tileB_label) %>%
-  ## nest by labeling variable
-  group_by(comparison) %>% 
-  nest() %>%
-  ## create plots with map2 function
-  mutate(plot = map2(data, comparison, ~ggplot(data = .x,
-                                               aes(x = tileA,
-                                                   y = tileB)) +
-                       ## add points, colored by label
-                       geom_point(color = .$color_label,
-                                  size = 1, alpha = 0.2) +
-                       ## add correlation statistic
-                       stat_cor(aes(label = paste(after_stat(r.label))),
-                                label.y = 1.3, label.x = -0.15, hjust = 0, size = 6 / .pt) +
-                       ## add perfect correlation line
-                       geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
-                       ## adjust x and y axes
-                       scale_x_continuous(expand = c(0, 0),
-                                          limits = c(-0.25, 1.45),
-                                          breaks = seq(-0.2, 1.4, by = 0.4),
-                                          labels = function(x) as.character(x)) +
-                       scale_y_continuous(expand = c(0, 0),
-                                          limits = c(-0.25, 1.45),
-                                          breaks = seq(-0.2, 1.4, by = 0.4),
-                                          labels = function(x) as.character(x)) +
-                       ## add titles
-                       labs(x = paste("Score in", .$tileA_label),
-                            y = paste("Score in", .$tileB_label),
-                            title = comparison))) %>%
-  ## extract only plots into list
-  pull(plot) %>%
-  ## arrange list of plots
-  wrap_plots(ncol = 5, byrow = FALSE)
-
-## save Fig. S3
-ggsave(here("outputs", "supp_fig_panels", "S3_tile_correlations.pdf"),
-       plot = shared_tile_correlations, device = cairo_pdf,
-       height = 72, width = 180, units = "mm")
 
 ```

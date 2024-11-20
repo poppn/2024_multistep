@@ -10,11 +10,13 @@ This github repo contains all code required to recreate the analysis and figures
 
 `sh rebuild_input_files.sh`
 
-## Analysis and Figures
+## Requirements:
 
-Requirements:
 R 4.0.0 or greater
+
 PyMOL 2.5.2 or greater
+
+## Analysis and figures
 
 The MultiSTEP_analysis.Rmd file contains all the code required to recreate the analysis and generate the figures and tables from the paper. The code is written to check for any required R packages and install them if necessary.
 
