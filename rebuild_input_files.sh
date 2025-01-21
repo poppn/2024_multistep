@@ -1,5 +1,5 @@
 #
-/bin/bash
+/bin/zsh
 
 ## this script takes input files that were split in order to 
 ## accommodate GitHub file size limitations and rebuilds them
